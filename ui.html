@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta name="author" content="">
+    <title>Inventory HUD</title>
+    <link rel="stylesheet" id="themonic-fonts-css" href="css/contextMenu.min.css" type="text/css" media="all" />
+    <link rel="stylesheet" id="themonic-fonts-css" href="css/jquery.dialog.min.css" type="text/css" media="all" />
+    <link rel="stylesheet" id="themonic-fonts-css" href="css/ui.min.css" type="text/css" media="all" />
+</head>
+
+<body>
+    <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+    <script type="text/javascript" src="js/config.js"></script>
+    <script type="text/javascript" src="js/contextMenu.min.js"></script>
+    <script type="text/javascript" src="js/jquery.dialog.min.js"></script>
+
+    <div id="inventoryHud">
+        <div id="title">Inventory</div>
+
+        <div id="inventoryElement">
+        </div>
+        <p id="information"></p>
+
+    </div>
+
+    <script type="text/javascript">
+        var isOpen = false;
+
+        function OverSetTitle(title) {
+            document.getElementById("information").innerHTML = title;
+        }
+
+        $("document").ready(function() {
+            $("#inventoryHud").hide();
+
+            $("body").on("keyup", function(key) {
+                if (Config.closeKeys.includes(key.which)) {
+                    closeInventory();
+                }
+            });
+
+            window.addEventListener("message", function(event) {
+                if (event.data.action == "display") {
+                    $("#inventoryHud").fadeIn();
+                    $(".controls").remove();
+
+                    $("#inventoryHud").append("<div class='controls'><div class='controls-center'><input type='text' id='search' placeholder='Search'/><button id='close'>Close</button></div></div>");
+
+                    $("#search").bind('input', function() {
+                        searchFor = $("#search").val().toLowerCase();
+                        $(".item").each(function() {
+                            label = $(this).data("label").toLowerCase();
+                            if (label.indexOf(searchFor) < 0) {
+                                $(this).hide();
+                            } else {
+                                $(this).show();
+                            }
+                        });
+                    });
+
+                    $(document).on('keydown', function(event) {
+                        $("#search").focus();
+                    });
+
+                    $("#close").on('click', function(event) {
+                        closeInventory();
+                    });
+                } else if (event.data.action == "hide") {
+                    $("#inventoryHud").fadeOut();
+                    $(".controls").fadeOut();
+                    $(".site-cm-box").remove();
+                    dialog.close();
+                } else if (event.data.action == "setItems") {
+                    inventorySetup(event.data.itemList);
+                } else if (event.data.action == "nearPlayers") {
+                    if (event.data.what == "give") {
+                        selectPlayerToGive(event.data);
+                    }
+                }
+            });
+        });
+
+        function selectPlayerToGive(data) {
+            dialog.prompt({
+                title: "Select Player",
+                button: "Confirm",
+                required: false,
+                item: data,
+                type: data.type,
+                select: true,
+                validate: function(value, data, player) {
+                    $.post("http://vorp_inventory/GiveItem", JSON.stringify({
+                        player: player,
+                        data: data
+                    }));
+                    return true;
+                }
+            });
+        }
+
+        function dropGetHowMany(item, type, hash, id) {
+            if (type != "item_weapon") {
+                dialog.prompt({
+                    title: "Amount",
+                    button: "Accept",
+                    required: true,
+                    item: item,
+                    type: type,
+                    input: {
+                        type: "number"
+                    },
+                    validate: function(value, item, type) {
+                        $.post("http://vorp_inventory/DropItem", JSON.stringify({
+                            item: item,
+                            type: type,
+                            number: value
+                        }));
+                        return true;
+                    }
+                });
+            } else {
+                $.post("http://vorp_inventory/DropItem", JSON.stringify({
+                    item: item,
+                    type: type,
+                    hash: hash,
+                    id: parseInt(id)
+                }));
+            }
+        }
+
+        function giveGetHowMany(item, type, hash, id) {
+            if (type != "item_weapon") {
+                dialog.prompt({
+                    title: "Amount",
+                    button: "Accept",
+                    required: false,
+                    item: item,
+                    type: type,
+                    input: {
+                        type: "number"
+                    },
+                    validate: function(value, item, type) {
+                        $.post("http://vorp_inventory/GetNearPlayers", JSON.stringify({
+                            type: type,
+                            what: "give",
+                            item: item,
+                            count: value
+                        }));
+                        return true;
+                    }
+                });
+            } else {
+                $.post("http://vorp_inventory/GetNearPlayers", JSON.stringify({
+                    type: type,
+                    what: "give",
+                    item: item,
+                    hash: hash,
+                    id: parseInt(id)
+                }));
+            }
+        }
+
+        function giveGetHowManyMoney() {
+            dialog.prompt({
+                title: "Amount",
+                button: "Accept",
+                required: true,
+                item: "money",
+                type: "item_money",
+                input: {
+                    type: "number"
+                },
+                validate: function(value, item, type) {
+                    $.post("http://vorp_inventory/GetNearPlayers", JSON.stringify({
+                        type: type,
+                        what: "give",
+                        item: item,
+                        count: value
+                    }));
+                    return true;
+                }
+            });
+
+        }
+
+        function closeInventory() {
+            $.post("http://vorp_inventory/NUIFocusOff", JSON.stringify({}));
+            isOpen = false;
+        }
+
+        function inventorySetup(items) {
+            $("#inventoryElement").html("");
+
+
+
+            $.each(items, function(index, item) {
+                count = item.count;
+
+                if (item.limit > 0) {
+                    count = count + " / " + item.limit;
+                }
+
+                $("#inventoryElement").append("<div data-label='" + item.label + "' style='background-image: url(\"img/items/" + item.name.toLowerCase() + ".png\"), url(img/bgitem.png); background-size: 60px 60px, 80px 80px; background-repeat: no-repeat; background-position: center;' id='item-" + index + "' class='item'><div class='count'>" + count + "</div><div class='text'></div></div>")
+
+                var data = [];
+                if (item.used) {
+                    data.push({
+                        text: "Unequip",
+                        action: function() {
+                            $.post("http://vorp_inventory/UnequipWeapon", JSON.stringify({
+                                item: item.name,
+                                id: item.id
+                            }));
+                        }
+                    })
+                }
+                if (item.usable) {
+                    data.push({
+                        text: "Use",
+                        action: function() {
+                            $.post("http://vorp_inventory/UseItem", JSON.stringify({
+                                item: item.name,
+                                type: item.type,
+                                hash: item.hash,
+                                amount: item.count,
+                                id: item.id
+                            }));
+                        }
+                    });
+                }
+
+                if (item.canRemove) {
+                    data.push({
+                        text: "Give",
+                        action: function() {
+                            giveGetHowMany(item.name, item.type, item.hash, item.id);
+                        }
+                    });
+
+                    data.push({
+                        text: "Release",
+                        action: function() {
+                            dropGetHowMany(item.name, item.type, item.hash, item.id);
+                        }
+                    });
+                }
+
+                if (data.length > 0) {
+                    $("#item-" + index).contextMenu([data], {
+                        offsetX: 1,
+                        offsetY: 1,
+                    });
+                }
+
+                $("#item-" + index).hover(
+                    function() {
+                        OverSetTitle(item.label);
+                    },
+                    function() {
+                        OverSetTitle(" ");
+                    }
+                );
+
+
+            });
+
+            //AddMoney
+            var m_item = "money";
+            var m_label = "Dollars";
+
+
+            $("#inventoryElement").append("<div data-label='" + m_label + "' style='background-image: url(\"img/items/" + m_item + ".png\"), url(img/bgitem.png); background-size: 60px 60px, 80px 80px; background-repeat: no-repeat; background-position: center;' id='item-" + m_item + "' class='item'><div class='text'></div></div>")
+
+            var data = [];
+
+            data.push({
+                text: "Give Money",
+                action: function() {
+                    giveGetHowManyMoney();
+                }
+            });
+
+            data.push({
+                text: "Drop Money",
+                action: function() {
+                    dropGetHowMany(m_item, "item_money", "asd", 0);
+                }
+            });
+
+
+
+            $("#item-" + m_item).contextMenu([data], {
+                offsetX: 1,
+                offsetY: 1,
+            });
+
+
+            $("#item-" + m_item).hover(
+                function() {
+                    OverSetTitle(m_label);
+                },
+                function() {
+                    OverSetTitle(" ");
+                }
+            );
+
+
+            isOpen = true;
+            initDivMouseOver()
+        }
+        window.onload = initDivMouseOver;
+
+        function initDivMouseOver() {
+            if (isOpen === true) {
+                var div = document.getElementById("inventoryElement");
+                div.mouseIsOver = false;
+                div.onmouseover = function() {
+                    this.mouseIsOver = true;
+                    $.post("http://vorp_inventory/sound");
+                };
+                div.onmouseout = function() {
+                    this.mouseIsOver = false;
+
+
+                }
+                div.onclick = function() {
+                    if (this.mouseIsOver) {
+
+
+                    }
+                }
+            }
+        }
+
+        //Make the DIV element draggagle:
+        dragElement(document.getElementById("inventoryHud"));
+        dragElement(document.getElementsByClassName("item"));
+
+
+        function dragElement(elmnt) {
+            var pos1 = 0,
+                pos2 = 0,
+                pos3 = 0,
+                pos4 = 0;
+            if (document.getElementById(elmnt.id + "header")) {
+                /* if present, the header is where you move the DIV from:*/
+                document.getElementById(elmnt.id + "header").onmousedown = dragMouseDown;
+            } else {
+                /* otherwise, move the DIV from anywhere inside the DIV:*/
+                elmnt.onmousedown = dragMouseDown;
+            }
+
+            function dragMouseDown(e) {
+                e = e || window.event;
+                e.preventDefault();
+                // get the mouse cursor position at startup:
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                document.onmouseup = closeDragElement;
+                // call a function whenever the cursor moves:
+                document.onmousemove = elementDrag;
+            }
+
+            function elementDrag(e) {
+                e = e || window.event;
+                e.preventDefault();
+                // calculate the new cursor position:
+                pos1 = pos3 - e.clientX;
+                pos2 = pos4 - e.clientY;
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                // set the element's new position:
+                elmnt.style.top = (elmnt.offsetTop - pos2) + "px";
+                elmnt.style.left = (elmnt.offsetLeft - pos1) + "px";
+            }
+
+            function closeDragElement() {
+                /* stop moving when mouse button is released:*/
+                document.onmouseup = null;
+                document.onmousemove = null;
+            }
+        }
+    </script>
+
+</body>
+
+</html>
